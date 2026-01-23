@@ -14,9 +14,7 @@ from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
     ViTImageProcessor,
-    ViTForImageClassification,
-    CLIPProcessor,
-    CLIPModel
+    ViTForImageClassification
 )
 from PIL import Image
 
@@ -39,15 +37,6 @@ def load_image_model():
     model_name = "facebook/deit-small-patch16-224"
     processor = ViTImageProcessor.from_pretrained(model_name)
     model = ViTForImageClassification.from_pretrained(model_name)
-    model.eval()
-    return processor, model
-
-
-# ----------------- MULTIMODAL (CLIP) -----------------
-@st.cache_resource
-def load_clip():
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
     model.eval()
     return processor, model
 
@@ -97,32 +86,12 @@ def predict_image(image, processor, model):
     return pred
 
 
-def predict_clip(image, text, processor, model):
-    # Use 2 prompts: fake and real
-    fake_prompt = "This is a fake news image"
-    real_prompt = "This is a real news image"
-
-    inputs = processor(
-        text=[fake_prompt, real_prompt],
-        images=image,
-        return_tensors="pt",
-        padding=True
-    )
-
-    with torch.no_grad():
-        outputs = model(**inputs)
-        probs = outputs.logits_per_image.softmax(dim=1)
-
-    pred = torch.argmax(probs).item()
-    return "FAKE" if pred == 0 else "REAL"
-
-
 # ----------------- STREAMLIT APP -----------------
 def main():
     st.title("📰 Fake News Detection System")
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["📝 Text", "🔗 URL", "🖼 Image", "🧠 Multimodal"]
+    tab1, tab2, tab3 = st.tabs(
+        ["📝 Text", "🔗 URL", "🖼 Image"]
     )
 
     with tab1:
@@ -153,22 +122,9 @@ def main():
                 pred = predict_image(image, processor, model)
                 st.success("REAL" if pred % 2 == 0 else "FAKE")
 
-    with tab4:
-        st.write("### Multimodal Prediction (Image + Text)")
-
-        uploaded = st.file_uploader("Upload image for multimodal", type=["jpg", "png", "jpeg"])
-        text_input = st.text_area("Enter caption or article text")
-
-        if uploaded and text_input and st.button("Predict Multimodal"):
-            image = Image.open(uploaded).convert("RGB")
-            st.image(image)
-
-            processor, model = load_clip()
-            pred = predict_clip(image, clean_text(text_input), processor, model)
-            st.success(pred)
-
 
 if __name__ == "__main__":
     main()
 
 # ---- FULL APP CODE END ----
+
