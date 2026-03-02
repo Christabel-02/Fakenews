@@ -1,10 +1,12 @@
-streamlit>=1.25.0
+streamlit
 torch
 transformers
-requests
 beautifulsoup4
 lxml
-tensorflow
+requests
 Pillow
 numpy
-
+keras
+jax
+jaxlib
+huggingface_hub
