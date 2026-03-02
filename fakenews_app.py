@@ -1,12 +1,13 @@
 # ---- FULL APP CODE START ----
 
+import os
 import requests
 from bs4 import BeautifulSoup
 import re
 import torch
 import streamlit as st
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import tensorflow as tf
+import keras
 import numpy as np
 from PIL import Image
 
@@ -14,7 +15,7 @@ st.set_page_config(page_title="Fake News & Image Forgery Detector", layout="wide
 
 IMG_SIZE = 224
 
-# ---------------- TEXT MODEL ----------------
+# ================= TEXT MODEL =================
 @st.cache_resource
 def load_text_model():
     model_name = "distilbert-base-uncased-finetuned-sst-2-english"
@@ -23,13 +24,6 @@ def load_text_model():
     model.eval()
     return tokenizer, model
 
-# ---------------- IMAGE MODEL ----------------
-@st.cache_resource
-def load_image_model():
-    model = tf.keras.models.load_model("forgery_model.keras")
-    return model
-
-# ---------------- TEXT FUNCTIONS ----------------
 def scrape_article(url):
     try:
         resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
@@ -54,7 +48,13 @@ def predict_text(text, tokenizer, model):
         pred = torch.argmax(outputs.logits, dim=-1).item()
     return pred
 
-# ---------------- IMAGE FUNCTIONS ----------------
+# ================= IMAGE MODEL (HUGGINGFACE KERAS) =================
+@st.cache_resource
+def load_image_model():
+    os.environ["KERAS_BACKEND"] = "jax"  # Required for this HF model
+    model = keras.saving.load_model("hf://kumaran-0188/image_forgery_detector")
+    return model
+
 def preprocess_image(image):
     image = image.convert("RGB")
     image = image.resize((IMG_SIZE, IMG_SIZE))
@@ -68,7 +68,7 @@ def predict_image(image, model):
     label = "REAL" if probability > 0.65 else "FAKE"
     return label, probability
 
-# ---------------- MAIN APP ----------------
+# ================= MAIN APP =================
 def main():
     st.title("📰🖼 Multi-Modal Fake Detection System")
     st.write("Detect Fake News (Text/URL) and Image Forgeries")
