@@ -7,13 +7,15 @@ import re
 import torch
 import streamlit as st
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import keras
 import numpy as np
 from PIL import Image
+import timm
+import torchvision.transforms as transforms
 
 st.set_page_config(page_title="Fake News & Image Forgery Detector", layout="wide")
 
 IMG_SIZE = 224
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ================= TEXT MODEL =================
 @st.cache_resource
@@ -28,7 +30,6 @@ def scrape_article(url):
     try:
         resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(resp.text, "lxml")
-
         paragraphs = soup.find_all("p")
         text = " ".join([p.get_text(" ", strip=True) for p in paragraphs])
         return text if len(text.split()) > 50 else None
@@ -48,25 +49,42 @@ def predict_text(text, tokenizer, model):
         pred = torch.argmax(outputs.logits, dim=-1).item()
     return pred
 
-# ================= IMAGE MODEL (HUGGINGFACE KERAS) =================
+# ================= IMAGE MODEL (ViT Tiny - PyTorch) =================
 @st.cache_resource
 def load_image_model():
-    os.environ["KERAS_BACKEND"] = "jax"  # Required for this HF model
-    model = keras.saving.load_model("hf://kumaran-0188/image_forgery_detector")
+    model = timm.create_model(
+        "vit_tiny_patch16_224",
+        pretrained=True,
+        num_classes=2
+    )
+    model.eval()
+    model.to(device)
     return model
 
 def preprocess_image(image):
+    transform = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=(0.485, 0.456, 0.406),
+            std=(0.229, 0.224, 0.225)
+        )
+    ])
     image = image.convert("RGB")
-    image = image.resize((IMG_SIZE, IMG_SIZE))
-    image = np.array(image) / 255.0
-    image = np.expand_dims(image, axis=0)
+    image = transform(image)
+    image = image.unsqueeze(0)
     return image
 
 def predict_image(image, model):
-    processed = preprocess_image(image)
-    probability = model.predict(processed)[0][0]
-    label = "REAL" if probability > 0.65 else "FAKE"
-    return label, probability
+    processed = preprocess_image(image).to(device)
+
+    with torch.no_grad():
+        outputs = model(processed)
+        probs = torch.softmax(outputs, dim=1)
+        confidence, pred = torch.max(probs, 1)
+
+    label = "REAL" if pred.item() == 1 else "FAKE"
+    return label, confidence.item()
 
 # ================= MAIN APP =================
 def main():
