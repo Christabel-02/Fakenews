@@ -4,3 +4,4 @@ transformers
 requests
 beautifulsoup4
 lxml
+tensorflow
