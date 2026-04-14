@@ -10,9 +10,12 @@ from PIL import Image
 
 st.set_page_config(page_title="Fake News & Image Forgery Detector", layout="wide")
 
+# 🔥 TEMP: clear cache (run once, then remove)
+st.cache_resource.clear()
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ================= TEXT MODEL (unchanged) =================
+# ================= TEXT MODEL =================
 @st.cache_resource
 def load_text_model():
     model_name = "distilbert-base-uncased-finetuned-sst-2-english"
@@ -44,12 +47,13 @@ def predict_text(text, tokenizer, model):
         pred = torch.argmax(outputs.logits, dim=-1).item()
     return pred
 
-# ================= IMAGE MODEL (umm-maybe/AI-image-detector) =================
+# ================= IMAGE MODEL =================
 @st.cache_resource
 def load_image_model():
     detector = pipeline(
         "image-classification",
-        model="umm-maybe/AI-image-detector"
+        model="umm-maybe/AI-image-detector",
+        device=0 if torch.cuda.is_available() else -1
     )
     return detector
 
@@ -57,7 +61,6 @@ def predict_image(image, detector):
     image = image.convert("RGB")
     result = detector(image)
 
-    # result example: [{'label': 'human', 'score': 0.98}, {'label': 'artificial', 'score': 0.02}]
     top = result[0]
     label_raw = top['label'].lower()
     confidence = top['score']
@@ -73,6 +76,9 @@ def predict_image(image, detector):
 def main():
     st.title("📰🖼 Multi-Modal Fake Detection System")
     st.write("Detect Fake News (Text/URL) and AI Generated Images")
+
+    # 🔥 Debug version check
+    st.write("Version 2.0 🚀")
 
     tab1, tab2, tab3 = st.tabs(["📝 Text Detection", "🔗 URL Detection", "🖼 Image Detection"])
 
@@ -129,15 +135,20 @@ def main():
     # -------- IMAGE TAB --------
     with tab3:
         st.subheader("AI Image Detection")
+
         uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
         if uploaded_file is not None:
             image = Image.open(uploaded_file)
             st.image(image, caption="Uploaded Image", use_column_width=True)
 
-            if st.button("Analyze Image"):
+            # 🔥 Load model once (not inside button)
+            detector = load_image_model()
+
+            analyze = st.button("Analyze Image")
+
+            if analyze:
                 with st.spinner("Analyzing image..."):
-                    detector = load_image_model()
                     label, confidence = predict_image(image, detector)
 
                 st.subheader("Prediction Result")
@@ -149,5 +160,6 @@ def main():
 
                 st.write(f"Confidence Score: {confidence*100:.2f}%")
 
+# ================= RUN =================
 if __name__ == "__main__":
     main()
