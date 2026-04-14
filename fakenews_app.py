@@ -52,7 +52,7 @@ def predict_text(text, tokenizer, model):
 def load_image_model():
     detector = pipeline(
         "image-classification",
-        model="umm-maybe/AI-image-detector",
+        model="Organika/sdxl-detector",
         device=0 if torch.cuda.is_available() else -1
     )
     return detector
@@ -65,7 +65,7 @@ def predict_image(image, detector):
     label_raw = top['label'].lower()
     confidence = top['score']
 
-    if 'human' in label_raw or 'real' in label_raw:
+    if 'real' in label_raw or 'human' in label_raw:
         label = 'REAL'
     else:
         label = 'AI GENERATED'
