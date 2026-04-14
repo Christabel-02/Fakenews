@@ -1,23 +1,18 @@
-# ---- FULL APP CODE START ----
-
 import os
 import requests
 from bs4 import BeautifulSoup
 import re
 import torch
 import streamlit as st
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import numpy as np
 from PIL import Image
-import timm
-import torchvision.transforms as transforms
 
 st.set_page_config(page_title="Fake News & Image Forgery Detector", layout="wide")
 
-IMG_SIZE = 224
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ================= TEXT MODEL =================
+# ================= TEXT MODEL (unchanged) =================
 @st.cache_resource
 def load_text_model():
     model_name = "distilbert-base-uncased-finetuned-sst-2-english"
@@ -49,47 +44,35 @@ def predict_text(text, tokenizer, model):
         pred = torch.argmax(outputs.logits, dim=-1).item()
     return pred
 
-# ================= IMAGE MODEL (ViT Tiny - PyTorch) =================
+# ================= IMAGE MODEL (umm-maybe/AI-image-detector) =================
 @st.cache_resource
 def load_image_model():
-    model = timm.create_model(
-        "vit_tiny_patch16_224",
-        pretrained=True,
-        num_classes=2
+    detector = pipeline(
+        "image-classification",
+        model="umm-maybe/AI-image-detector"
     )
-    model.eval()
-    model.to(device)
-    return model
+    return detector
 
-def preprocess_image(image):
-    transform = transforms.Compose([
-        transforms.Resize((IMG_SIZE, IMG_SIZE)),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=(0.485, 0.456, 0.406),
-            std=(0.229, 0.224, 0.225)
-        )
-    ])
+def predict_image(image, detector):
     image = image.convert("RGB")
-    image = transform(image)
-    image = image.unsqueeze(0)
-    return image
+    result = detector(image)
 
-def predict_image(image, model):
-    processed = preprocess_image(image).to(device)
+    # result example: [{'label': 'human', 'score': 0.98}, {'label': 'artificial', 'score': 0.02}]
+    top = result[0]
+    label_raw = top['label'].lower()
+    confidence = top['score']
 
-    with torch.no_grad():
-        outputs = model(processed)
-        probs = torch.softmax(outputs, dim=1)
-        confidence, pred = torch.max(probs, 1)
+    if 'human' in label_raw or 'real' in label_raw:
+        label = 'REAL'
+    else:
+        label = 'AI GENERATED'
 
-    label = "REAL" if pred.item() == 1 else "FAKE"
-    return label, confidence.item()
+    return label, confidence
 
 # ================= MAIN APP =================
 def main():
     st.title("📰🖼 Multi-Modal Fake Detection System")
-    st.write("Detect Fake News (Text/URL) and Image Forgeries")
+    st.write("Detect Fake News (Text/URL) and AI Generated Images")
 
     tab1, tab2, tab3 = st.tabs(["📝 Text Detection", "🔗 URL Detection", "🖼 Image Detection"])
 
@@ -145,7 +128,7 @@ def main():
 
     # -------- IMAGE TAB --------
     with tab3:
-        st.subheader("Image Forgery Detection")
+        st.subheader("AI Image Detection")
         uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
         if uploaded_file is not None:
@@ -153,19 +136,18 @@ def main():
             st.image(image, caption="Uploaded Image", use_column_width=True)
 
             if st.button("Analyze Image"):
-                model = load_image_model()
-                label, probability = predict_image(image, model)
+                with st.spinner("Analyzing image..."):
+                    detector = load_image_model()
+                    label, confidence = predict_image(image, detector)
 
                 st.subheader("Prediction Result")
 
-                if label == "FAKE":
-                    st.error(f"Prediction: {label}")
+                if label == "AI GENERATED":
+                    st.error(f"🤖 Prediction: {label}")
                 else:
-                    st.success(f"Prediction: {label}")
+                    st.success(f"✅ Prediction: {label}")
 
-                st.write(f"Confidence Score: {probability:.4f}")
+                st.write(f"Confidence Score: {confidence*100:.2f}%")
 
 if __name__ == "__main__":
     main()
-
-# ---- FULL APP CODE END ----
