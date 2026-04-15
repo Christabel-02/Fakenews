@@ -7,27 +7,52 @@ import streamlit as st
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import numpy as np
 from PIL import Image
+from langdetect import detect
 
 st.set_page_config(page_title="Fake News & Image Forgery Detector", layout="wide")
 
-# 🔥 TEMP: clear cache (run once, then remove)
 st.cache_resource.clear()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ================= TEXT MODEL =================
+# ================= TEXT MODELS =================
 @st.cache_resource
-def load_text_model():
-    model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+def load_english_model():
+    model_name = "GonzaloA/fake-news-detector"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name)
     model.eval()
     return tokenizer, model
 
+@st.cache_resource
+def load_multilingual_model():
+    model_name = "muhtasham/xlm-roberta-base-finetuned-fake-news"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name)
+    model.eval()
+    return tokenizer, model
+
+def detect_language(text):
+    try:
+        lang = detect(text)
+        return lang
+    except:
+        return "en"  # Default to English if detection fails
+
 def scrape_article(url):
     try:
-        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+        resp = requests.get(url, timeout=15, headers=headers)
         soup = BeautifulSoup(resp.text, "lxml")
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
         paragraphs = soup.find_all("p")
         text = " ".join([p.get_text(" ", strip=True) for p in paragraphs])
         return text if len(text.split()) > 50 else None
@@ -47,6 +72,27 @@ def predict_text(text, tokenizer, model):
         pred = torch.argmax(outputs.logits, dim=-1).item()
     return pred
 
+def run_prediction(text):
+    lang = detect_language(text)
+    st.info(f"🌐 Detected Language Code: `{lang}`")
+
+    if lang == "en":
+        st.info("🔵 Using English Model: **GonzaloA/fake-news-detector**")
+        tokenizer, model = load_english_model()
+        cleaned = clean_text(text)
+        pred = predict_text(cleaned, tokenizer, model)
+        # GonzaloA: 0 = REAL, 1 = FAKE
+        label = "REAL" if pred == 0 else "FAKE"
+    else:
+        st.info(f"🟣 Using Multilingual Model: **muhtasham/xlm-roberta-base-finetuned-fake-news**")
+        tokenizer, model = load_multilingual_model()
+        cleaned = clean_text(text)
+        pred = predict_text(cleaned, tokenizer, model)
+        # muhtasham: 0 = FAKE, 1 = REAL (check and adjust if needed)
+        label = "FAKE" if pred == 0 else "REAL"
+
+    return label
+
 # ================= IMAGE MODEL =================
 @st.cache_resource
 def load_image_model():
@@ -60,25 +106,20 @@ def load_image_model():
 def predict_image(image, detector):
     image = image.convert("RGB")
     result = detector(image)
-
     top = result[0]
     label_raw = top['label'].lower()
     confidence = top['score']
-
     if 'real' in label_raw or 'human' in label_raw:
         label = 'REAL'
     else:
         label = 'AI GENERATED'
-
     return label, confidence
 
 # ================= MAIN APP =================
 def main():
     st.title("📰🖼 Multi-Modal Fake Detection System")
     st.write("Detect Fake News (Text/URL) and AI Generated Images")
-
-    # 🔥 Debug version check
-    st.write("Version 2.0 🚀")
+    st.write("Version 3.0 🚀")
 
     tab1, tab2, tab3 = st.tabs(["📝 Text Detection", "🔗 URL Detection", "🖼 Image Detection"])
 
@@ -91,15 +132,14 @@ def main():
             if not text_input.strip():
                 st.warning("Please enter some text.")
             else:
-                tokenizer, model = load_text_model()
-                cleaned = clean_text(text_input)
-                pred = predict_text(cleaned, tokenizer, model)
-                label = "FAKE" if pred == 0 else "REAL"
+                with st.spinner("Detecting language and analyzing..."):
+                    label = run_prediction(text_input)
 
+                st.subheader("Prediction Result")
                 if label == "FAKE":
-                    st.error(f"Prediction: {label}")
+                    st.error(f"❌ Prediction: {label}")
                 else:
-                    st.success(f"Prediction: {label}")
+                    st.success(f"✅ Prediction: {label}")
 
     # -------- URL TAB --------
     with tab2:
@@ -121,30 +161,24 @@ def main():
                     st.text_area("Scraping Preview:", preview, height=200)
                     st.write(f"Word Count: {len(article.split())}")
 
-                    tokenizer, model = load_text_model()
-                    cleaned = clean_text(article)
-                    pred = predict_text(cleaned, tokenizer, model)
-                    label = "FAKE" if pred == 0 else "REAL"
+                    with st.spinner("Detecting language and analyzing..."):
+                        label = run_prediction(article)
 
                     st.subheader("Prediction Result")
                     if label == "FAKE":
-                        st.error(f"Prediction: {label}")
+                        st.error(f"❌ Prediction: {label}")
                     else:
-                        st.success(f"Prediction: {label}")
+                        st.success(f"✅ Prediction: {label}")
 
     # -------- IMAGE TAB --------
     with tab3:
         st.subheader("AI Image Detection")
-
         uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
         if uploaded_file is not None:
             image = Image.open(uploaded_file)
             st.image(image, caption="Uploaded Image", use_column_width=True)
-
-            # 🔥 Load model once (not inside button)
             detector = load_image_model()
-
             analyze = st.button("Analyze Image")
 
             if analyze:
@@ -152,12 +186,10 @@ def main():
                     label, confidence = predict_image(image, detector)
 
                 st.subheader("Prediction Result")
-
                 if label == "AI GENERATED":
                     st.error(f"🤖 Prediction: {label}")
                 else:
                     st.success(f"✅ Prediction: {label}")
-
                 st.write(f"Confidence Score: {confidence*100:.2f}%")
 
 # ================= RUN =================
