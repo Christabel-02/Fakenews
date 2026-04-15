@@ -11,14 +11,12 @@ from langdetect import detect
 
 st.set_page_config(page_title="Fake News & Image Forgery Detector", layout="wide")
 
-st.cache_resource.clear()
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ================= TEXT MODELS =================
 @st.cache_resource
 def load_english_model():
-    model_name = "GonzaloA/fake-news-detector"
+    model_name = "jy46604790/Fake-News-Bert-Detect"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name)
     model.eval()
@@ -26,7 +24,7 @@ def load_english_model():
 
 @st.cache_resource
 def load_multilingual_model():
-    model_name = "muhtasham/xlm-roberta-base-finetuned-fake-news"
+    model_name = "hamzab/roberta-fake-news-classification"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name)
     model.eval()
@@ -37,7 +35,7 @@ def detect_language(text):
         lang = detect(text)
         return lang
     except:
-        return "en"  # Default to English if detection fails
+        return "en"
 
 def scrape_article(url):
     try:
@@ -72,23 +70,31 @@ def predict_text(text, tokenizer, model):
         pred = torch.argmax(outputs.logits, dim=-1).item()
     return pred
 
+LANGUAGE_NAMES = {
+    "en": "English", "fr": "French", "de": "German", "es": "Spanish",
+    "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "ru": "Russian",
+    "ar": "Arabic", "zh-cn": "Chinese", "zh-tw": "Chinese", "ja": "Japanese",
+    "ko": "Korean", "hi": "Hindi", "ta": "Tamil", "tr": "Turkish",
+    "pl": "Polish", "sv": "Swedish", "da": "Danish", "fi": "Finnish",
+}
+
+def get_language_name(lang_code):
+    return LANGUAGE_NAMES.get(lang_code, lang_code.upper())
+
 def run_prediction(text):
     lang = detect_language(text)
-    st.info(f"🌐 Detected Language Code: `{lang}`")
+    lang_name = get_language_name(lang)
+    st.info(f"🌐 Detected Language: **{lang_name}**")
 
     if lang == "en":
-        st.info("🔵 Using English Model: **GonzaloA/fake-news-detector**")
         tokenizer, model = load_english_model()
         cleaned = clean_text(text)
         pred = predict_text(cleaned, tokenizer, model)
-        # GonzaloA: 0 = REAL, 1 = FAKE
-        label = "REAL" if pred == 0 else "FAKE"
+        label = "FAKE" if pred == 0 else "REAL"
     else:
-        st.info(f"🟣 Using Multilingual Model: **muhtasham/xlm-roberta-base-finetuned-fake-news**")
         tokenizer, model = load_multilingual_model()
         cleaned = clean_text(text)
         pred = predict_text(cleaned, tokenizer, model)
-        # muhtasham: 0 = FAKE, 1 = REAL (check and adjust if needed)
         label = "FAKE" if pred == 0 else "REAL"
 
     return label
@@ -108,12 +114,11 @@ def predict_image(image, detector):
     result = detector(image)
     top = result[0]
     label_raw = top['label'].lower()
-    confidence = top['score']
     if 'real' in label_raw or 'human' in label_raw:
         label = 'REAL'
     else:
         label = 'AI GENERATED'
-    return label, confidence
+    return label
 
 # ================= MAIN APP =================
 def main():
@@ -183,14 +188,13 @@ def main():
 
             if analyze:
                 with st.spinner("Analyzing image..."):
-                    label, confidence = predict_image(image, detector)
+                    label = predict_image(image, detector)
 
                 st.subheader("Prediction Result")
                 if label == "AI GENERATED":
                     st.error(f"🤖 Prediction: {label}")
                 else:
                     st.success(f"✅ Prediction: {label}")
-                st.write(f"Confidence Score: {confidence*100:.2f}%")
 
 # ================= RUN =================
 if __name__ == "__main__":
