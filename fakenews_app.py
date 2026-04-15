@@ -15,12 +15,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ================= TEXT MODELS =================
 @st.cache_resource
-def load_english_model():
-    model_name = "jy46604790/Fake-News-Bert-Detect"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name)
-    model.eval()
-    return tokenizer, model
+def load_english_pipeline():
+    clf = pipeline(
+        "text-classification",
+        model="mrm8488/bert-tiny-finetuned-fake-news-detection"
+    )
+    return clf
 
 @st.cache_resource
 def load_multilingual_model():
@@ -86,14 +86,21 @@ def run_prediction(text):
     lang_name = get_language_name(lang)
     st.info(f"🌐 Detected Language: **{lang_name}**")
 
+    cleaned = clean_text(text)
+
     if lang == "en":
-        tokenizer, model = load_english_model()
-        cleaned = clean_text(text)
-        pred = predict_text(cleaned, tokenizer, model)
-        label = "FAKE" if pred == 0 else "REAL"
+        clf = load_english_pipeline()
+        result = clf(cleaned[:512])[0]
+        raw_label = result['label'].upper()
+        if "FAKE" in raw_label:
+            label = "FAKE"
+        elif "REAL" in raw_label:
+            label = "REAL"
+        else:
+            # fallback: LABEL_0 = FAKE, LABEL_1 = REAL
+            label = "FAKE" if result['label'] == "LABEL_0" else "REAL"
     else:
         tokenizer, model = load_multilingual_model()
-        cleaned = clean_text(text)
         pred = predict_text(cleaned, tokenizer, model)
         label = "FAKE" if pred == 0 else "REAL"
 
