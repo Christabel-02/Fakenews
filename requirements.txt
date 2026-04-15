@@ -11,4 +11,4 @@ jax
 jaxlib
 huggingface_hub
 timm
-
+langdetect
